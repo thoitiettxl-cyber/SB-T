@@ -1,0 +1,3 @@
+box/bin/ipset               binary
+box/bin/IPSET-LKM/ko-loader binary
+box/bin/IPSET-LKM/netfilter/**/*.ko binary

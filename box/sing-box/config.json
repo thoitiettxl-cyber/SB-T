@@ -1,0 +1,523 @@
+{
+  "log": {
+    "level": "panic",
+    "output": "/data/adb/box/run/sing-box.log",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "https",
+        "tag": "remote_dns",
+        "server": "1.1.1.1"
+      },
+      {
+        "type": "fakeip",
+        "tag": "fake_dns",
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "fc00::/18"
+      }
+    ],
+    "rules": [
+      {
+        "query_type": [
+          "SVCB",
+          "HTTPS"
+        ],
+        "action": "predefined",
+        "rcode": "NOTIMP"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "clash_mode": "AllowAds",
+            "invert": true
+          },
+          {
+            "rule_set": "category-ads-all"
+          }
+        ],
+        "action": "route-options",
+        "disable_cache": true
+      },
+      {
+        "rule_set": "geosite-telegram",
+        "server": "remote_dns"
+      },
+      {
+        "domain_suffix": [
+          ".vertexaisearch.cloud.google.com",
+          ".cloud.google.com",
+          ".googleapis.com",
+          "vertexaisearch.cloud.google.com"
+        ],
+        "server": "remote_dns"
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "server": "fake_dns",
+        "rewrite_ttl": 1
+      }
+    ],
+    "final": "remote_dns",
+    "strategy": "ipv4_only",
+    "independent_cache": true
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "::",
+      "listen_port": 7080
+    },
+    {
+      "type": "tproxy",
+      "tag": "tproxy-in",
+      "listen": "::",
+      "listen_port": 1536
+    },
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "interface_name": "sing",
+      "address": [
+        "172.18.0.1/30"
+      ],
+      "mtu": 9000,
+      "stack": "mixed",
+      "auto_route": false,
+      "strict_route": true,
+      "auto_redirect": false,
+      "include_android_user": [
+        0,
+        10,
+        999
+      ],
+      "include_uid": [],
+      "exclude_uid": []
+    },
+    {
+      "type": "socks",
+      "tag": "socks-in",
+      "listen": "0.0.0.0",
+      "listen_port": 2080
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "Default_🦈",
+      "outbounds": [
+        "Direct_🦈",
+        "WorkerCF_🦈"
+      ],
+      "default": "Direct_🦈",
+      "interrupt_exist_connections": true
+    },
+    {
+      "type": "direct",
+      "tag": "Direct_🦈"
+    },
+    {
+      "type": "selector",
+      "tag": "Soul_🌐",
+      "outbounds": [
+        "WorkerCF_🦈",
+        "Direct_🦈"
+      ],
+      "default": "WorkerCF_🦈"
+    },
+    {
+      "type": "trojan",
+      "tag": "CF_T1_yg1.ygkkk.dpdns.org_80",
+      "server": "yg1.ygkkk.dpdns.org",
+      "server_port": 80,
+      "password": "trojan",
+      "transport": {
+        "type": "ws",
+        "path": "/?ed=2560",
+        "headers": {
+          "Host": "cf.ngthanhhuy951.workers.dev"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "CF_T2_yg2.ygkkk.dpdns.org_8080",
+      "server": "yg2.ygkkk.dpdns.org",
+      "server_port": 8080,
+      "password": "trojan",
+      "transport": {
+        "type": "ws",
+        "path": "/?ed=2560",
+        "headers": {
+          "Host": "cf.ngthanhhuy951.workers.dev"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "CF_T3_yg3.ygkkk.dpdns.org_8880",
+      "server": "yg3.ygkkk.dpdns.org",
+      "server_port": 8880,
+      "password": "trojan",
+      "transport": {
+        "type": "ws",
+        "path": "/?ed=2560",
+        "headers": {
+          "Host": "cf.ngthanhhuy951.workers.dev"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "CF_T4_yg4.ygkkk.dpdns.org_2052",
+      "server": "yg4.ygkkk.dpdns.org",
+      "server_port": 2052,
+      "password": "trojan",
+      "transport": {
+        "type": "ws",
+        "path": "/?ed=2560",
+        "headers": {
+          "Host": "cf.ngthanhhuy951.workers.dev"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "CF_T5_yg5.ygkkk.dpdns.org_2082",
+      "server": "yg5.ygkkk.dpdns.org",
+      "server_port": 2082,
+      "password": "trojan",
+      "transport": {
+        "type": "ws",
+        "path": "/?ed=2560",
+        "headers": {
+          "Host": "cf.ngthanhhuy951.workers.dev"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "CF_T6_yg6.ygkkk.dpdns.org_2086",
+      "server": "yg6.ygkkk.dpdns.org",
+      "server_port": 2086,
+      "password": "trojan",
+      "transport": {
+        "type": "ws",
+        "path": "/?ed=2560",
+        "headers": {
+          "Host": "cf.ngthanhhuy951.workers.dev"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "CF_T7_yg7.ygkkk.dpdns.org_2095",
+      "server": "yg7.ygkkk.dpdns.org",
+      "server_port": 2095,
+      "password": "trojan",
+      "transport": {
+        "type": "ws",
+        "path": "/?ed=2560",
+        "headers": {
+          "Host": "cf.ngthanhhuy951.workers.dev"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "Viettel",
+      "server": "yg9.ygkkk.dpdns.org",
+      "server_port": 8443,
+      "password": "trojan",
+      "tls": {
+        "enabled": true,
+        "server_name": "cf.ngthanhhuy951.workers.dev",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/?ed=2560",
+        "headers": {
+          "Host": "tv360.vn"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "CF_T9_yg9.ygkkk.dpdns.org_8443",
+      "server": "yg9.ygkkk.dpdns.org",
+      "server_port": 443,
+      "password": "trojan",
+      "tls": {
+        "enabled": true,
+        "server_name": "cf.ngthanhhuy951.workers.dev",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/?ed=2560",
+        "headers": {
+          "Host": "cf.ngthanhhuy951.workers.dev"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "CF_T10_yg10.ygkkk.dpdns.org_2053",
+      "server": "yg10.ygkkk.dpdns.org",
+      "server_port": 2053,
+      "password": "trojan",
+      "tls": {
+        "enabled": true,
+        "server_name": "cf.ngthanhhuy951.workers.dev",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/?ed=2560",
+        "headers": {
+          "Host": "cf.ngthanhhuy951.workers.dev"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "CF_T11_yg11.ygkkk.dpdns.org_2083",
+      "server": "yg11.ygkkk.dpdns.org",
+      "server_port": 2083,
+      "password": "trojan",
+      "tls": {
+        "enabled": true,
+        "server_name": "cf.ngthanhhuy951.workers.dev",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/?ed=2560",
+        "headers": {
+          "Host": "cf.ngthanhhuy951.workers.dev"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "CF_T12_yg12.ygkkk.dpdns.org_2087",
+      "server": "yg12.ygkkk.dpdns.org",
+      "server_port": 2087,
+      "password": "trojan",
+      "tls": {
+        "enabled": true,
+        "server_name": "cf.ngthanhhuy951.workers.dev",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/?ed=2560",
+        "headers": {
+          "Host": "cf.ngthanhhuy951.workers.dev"
+        }
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "CF_T13_yg13.ygkkk.dpdns.org_2096",
+      "server": "yg13.ygkkk.dpdns.org",
+      "server_port": 2096,
+      "password": "trojan",
+      "tls": {
+        "enabled": true,
+        "server_name": "cf.ngthanhhuy951.workers.dev",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/?ed=2560",
+        "headers": {
+          "Host": "cf.ngthanhhuy951.workers.dev"
+        }
+      }
+    },
+    {
+      "type": "urltest",
+      "tag": "WorkerCF_🦈",
+      "outbounds": [
+        "CF_T1_yg1.ygkkk.dpdns.org_80",
+        "CF_T2_yg2.ygkkk.dpdns.org_8080",
+        "CF_T3_yg3.ygkkk.dpdns.org_8880",
+        "CF_T4_yg4.ygkkk.dpdns.org_2052",
+        "CF_T5_yg5.ygkkk.dpdns.org_2082",
+        "CF_T6_yg6.ygkkk.dpdns.org_2086",
+        "CF_T7_yg7.ygkkk.dpdns.org_2095",
+        "Viettel",
+        "CF_T9_yg9.ygkkk.dpdns.org_8443",
+        "CF_T10_yg10.ygkkk.dpdns.org_2053",
+        "CF_T11_yg11.ygkkk.dpdns.org_2083",
+        "CF_T12_yg12.ygkkk.dpdns.org_2087",
+        "CF_T13_yg13.ygkkk.dpdns.org_2096"
+      ],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "1m0s",
+      "tolerance": 50
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "type": "logical",
+        "mode": "or",
+        "rules": [
+          {
+            "port": 53
+          },
+          {
+            "protocol": "dns"
+          }
+        ],
+        "action": "hijack-dns"
+      },
+      {
+        "port": 853,
+        "action": "reject"
+      },
+      {
+        "network": "icmp",
+        "outbound": "Direct_🦈"
+      },
+      {
+        "network": "udp",
+        "port": 443,
+        "action": "reject"
+      },
+      {
+        "type": "logical",
+        "mode": "and",
+        "rules": [
+          {
+            "clash_mode": "AllowAds",
+            "invert": true
+          },
+          {
+            "rule_set": "category-ads-all"
+          }
+        ],
+        "action": "reject"
+      },
+      {
+        "protocol": "stun",
+        "action": "reject"
+      },
+      {
+        "package_name": [
+          "com.mycompany.app.soulbrowser",
+          "mark.via.chatgpt"
+        ],
+        "outbound": "Soul_🌐"
+      },
+      {
+        "domain_suffix": [
+          ".vertexaisearch.cloud.google.com",
+          ".cloud.google.com",
+          ".googleapis.com",
+          "vertexaisearch.cloud.google.com"
+        ],
+        "outbound": "Default_🦈"
+      },
+      {
+        "network": [
+          "udp",
+          "tcp"
+        ],
+        "port": 20128,
+        "outbound": "WorkerCF_🦈"
+      },
+      {
+        "inbound": "socks-in",
+        "outbound": "WorkerCF_🦈"
+      },
+      {
+        "action": "resolve"
+      },
+      {
+        "network": [
+          "tcp",
+          "udp"
+        ],
+        "outbound": "Default_🦈"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "category-ads-all",
+        "url": "https://github.com/thaomaitam/Geosite-vn/raw/rule-set/Geosite-vn.srs",
+        "download_detour": "Direct_🦈",
+        "update_interval": "24h0m0s"
+      },
+      {
+        "tag": "geosite-telegram",
+        "type": "remote",
+        "url": "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo-lite/geosite/telegram.srs",
+        "download_detour": "Direct_🦈",
+        "update_interval": "24h0m0s"
+      }
+    ],
+    "final": "Default_🦈",
+    "find_process": true,
+    "auto_detect_interface": true,
+    "default_domain_resolver": "remote_dns"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "cache.db",
+      "store_fakeip": true,
+      "store_rdrc": true
+    },
+    "clash_api": {
+      "external_controller": "0.0.0.0:9090",
+      "external_ui": "ui",
+      "external_ui_download_url": "https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip",
+      "external_ui_download_detour": "Direct_🦈",
+      "default_mode": "rule"
+    }
+  },
+  "endpoints": [
+    {
+      "type": "tailscale",
+      "tag": "ts-ep",
+      "state_directory": "/data/adb/box/sing-box/tailscale",
+      "hostname": "openclaw-android",
+      "accept_routes": false,
+      "udp_timeout": "5m",
+      "domain_resolver": "remote_dns"
+    }
+  ]
+}
