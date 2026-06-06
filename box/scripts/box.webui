@@ -1,0 +1,200 @@
+#!/system/bin/sh
+# box.webui — WebUI JSON API backend for SB-Tproxy
+# Called by KernelSU bridge: box.webui COMMAND [ARGS...]
+# Returns JSON: {"ok":true,"command":"CMD","data":...} | {"ok":false,"command":"CMD","error":"..."}
+
+BOX_DIR=/data/adb/box
+TPROXY_CONF=$BOX_DIR/tproxy.conf
+SING_CONF=$BOX_DIR/sing-box/config.json
+SCRIPTS=$BOX_DIR/scripts
+BOX_PID_FILE=$BOX_DIR/run/box.pid
+RUNS_LOG=$BOX_DIR/run/runs.log
+SINGBOX_LOG=$BOX_DIR/run/sing-box.log
+NET_LOG=$BOX_DIR/run/net.log
+
+CMD="${1:-}"
+shift 2>/dev/null || true
+
+_ok()  { printf '{"ok":true,"command":"%s","data":%s}\n'  "$CMD" "$1"; }
+_err() { printf '{"ok":false,"command":"%s","error":"%s"}\n' "$CMD" "$1"; }
+
+# Read a variable from tproxy.conf (strips surrounding quotes)
+_conf_get() {
+    sed -n "s/^${1}=[\"']*\([^\"']*\)[\"']*[[:space:]]*$/\1/p" \
+        "$TPROXY_CONF" 2>/dev/null | head -1
+}
+
+# Set a bare-number variable in tproxy.conf
+_conf_set_num() { sed -i "s|^${1}=.*$|${1}=${2}|" "$TPROXY_CONF"; }
+
+# Set a double-quoted string variable in tproxy.conf
+_conf_set_str() {
+    # Escape & so sed doesn't treat it as backreference
+    local safe
+    safe=$(printf '%s' "$2" | sed 's/&/\\&/g')
+    sed -i "s|^${1}=.*$|${1}=\"${safe}\"|" "$TPROXY_CONF"
+}
+
+# Escape a string for embedding inside a JSON string value
+# (handles backslash, double-quote, tab, and converts newlines to \n)
+_jstr() {
+    printf '%s' "$1" \
+        | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' \
+        | awk '{if(NR>1)printf "\\n"; printf "%s",$0}'
+}
+
+# Extract clash API port from sing-box config.json
+_api_port() {
+    sed -n 's/.*"external_controller"[[:space:]]*:[[:space:]]*"[^:]*:\([0-9]*\)".*/\1/p' \
+        "$SING_CONF" 2>/dev/null | head -1
+}
+
+# --------------------------------------------------------------------------- #
+
+case "$CMD" in
+
+  # ── Service status ─────────────────────────────────────────────────────── #
+  status)
+    PID=$(cat "$BOX_PID_FILE" 2>/dev/null)
+    if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+        RUNNING=true
+    else
+        RUNNING=false; PID=""
+    fi
+    VER=$($BOX_DIR/bin/sing-box version 2>/dev/null | head -1 | sed 's/^sing-box //')
+    API_PORT=$(_api_port); API_PORT="${API_PORT:-9090}"
+    _ok "{\"running\":${RUNNING},\"pid\":\"${PID}\",\"bin_name\":\"sing-box\",\"clash_api_port\":\"${API_PORT}\",\"clash_api_secret\":\"\",\"sb_version\":\"$(_jstr "$VER")\"}"
+    ;;
+
+  # ── Read tproxy.conf as JSON ───────────────────────────────────────────── #
+  get-config)
+    PROXY_MODE=$(_conf_get PROXY_MODE);               PROXY_MODE="${PROXY_MODE:-0}"
+    PERFORMANCE_MODE=$(_conf_get PERFORMANCE_MODE);   PERFORMANCE_MODE="${PERFORMANCE_MODE:-0}"
+    DNS_HIJACK_ENABLE=$(_conf_get DNS_HIJACK_ENABLE); DNS_HIJACK_ENABLE="${DNS_HIJACK_ENABLE:-0}"
+    PROXY_MOBILE=$(_conf_get PROXY_MOBILE);           PROXY_MOBILE="${PROXY_MOBILE:-1}"
+    PROXY_WIFI=$(_conf_get PROXY_WIFI);               PROXY_WIFI="${PROXY_WIFI:-1}"
+    PROXY_HOTSPOT=$(_conf_get PROXY_HOTSPOT);         PROXY_HOTSPOT="${PROXY_HOTSPOT:-0}"
+    PROXY_USB=$(_conf_get PROXY_USB);                 PROXY_USB="${PROXY_USB:-0}"
+    PROXY_TCP=$(_conf_get PROXY_TCP);                 PROXY_TCP="${PROXY_TCP:-1}"
+    PROXY_UDP=$(_conf_get PROXY_UDP);                 PROXY_UDP="${PROXY_UDP:-1}"
+    PROXY_IPV6=$(_conf_get PROXY_IPV6);               PROXY_IPV6="${PROXY_IPV6:--1}"
+    APP_PROXY_ENABLE=$(_conf_get APP_PROXY_ENABLE);   APP_PROXY_ENABLE="${APP_PROXY_ENABLE:-0}"
+    BLOCK_QUIC=$(_conf_get BLOCK_QUIC);               BLOCK_QUIC="${BLOCK_QUIC:-0}"
+    BYPASS_CN_IP=$(_conf_get BYPASS_CN_IP);           BYPASS_CN_IP="${BYPASS_CN_IP:-0}"
+    FORCE_MARK_BYPASS=$(_conf_get FORCE_MARK_BYPASS); FORCE_MARK_BYPASS="${FORCE_MARK_BYPASS:-0}"
+    APP_PROXY_MODE=$(_conf_get APP_PROXY_MODE);       APP_PROXY_MODE="${APP_PROXY_MODE:-blacklist}"
+    # App lists: space-separated in file → \n-separated in JSON for WebUI
+    BYPASS_APPS=$(_conf_get BYPASS_APPS_LIST \
+        | tr ' ' '\n' | sed '/^[[:space:]]*$/d' \
+        | awk '{if(NR>1)printf "\\n"; printf "%s",$0}')
+    PROXY_APPS=$(_conf_get PROXY_APPS_LIST \
+        | tr ' ' '\n' | sed '/^[[:space:]]*$/d' \
+        | awk '{if(NR>1)printf "\\n"; printf "%s",$0}')
+    OTHER_BYPASS=$(_conf_get OTHER_BYPASS_INTERFACES); OTHER_BYPASS="${OTHER_BYPASS:-}"
+    OTHER_PROXY=$(_conf_get OTHER_PROXY_INTERFACES);   OTHER_PROXY="${OTHER_PROXY:-}"
+    API_PORT=$(_api_port); API_PORT="${API_PORT:-9090}"
+    _ok "{\"PROXY_MODE\":${PROXY_MODE},\"PERFORMANCE_MODE\":${PERFORMANCE_MODE},\"DNS_HIJACK_ENABLE\":${DNS_HIJACK_ENABLE},\"PROXY_MOBILE\":${PROXY_MOBILE},\"PROXY_WIFI\":${PROXY_WIFI},\"PROXY_HOTSPOT\":${PROXY_HOTSPOT},\"PROXY_USB\":${PROXY_USB},\"PROXY_TCP\":${PROXY_TCP},\"PROXY_UDP\":${PROXY_UDP},\"PROXY_IPV6\":${PROXY_IPV6},\"APP_PROXY_ENABLE\":${APP_PROXY_ENABLE},\"APP_PROXY_MODE\":\"${APP_PROXY_MODE}\",\"BYPASS_APPS_LIST\":\"${BYPASS_APPS}\",\"PROXY_APPS_LIST\":\"${PROXY_APPS}\",\"BYPASS_CN_IP\":${BYPASS_CN_IP},\"BLOCK_QUIC\":${BLOCK_QUIC},\"FORCE_MARK_BYPASS\":${FORCE_MARK_BYPASS},\"OTHER_BYPASS_INTERFACES\":\"$(_jstr "$OTHER_BYPASS")\",\"OTHER_PROXY_INTERFACES\":\"$(_jstr "$OTHER_PROXY")\",\"bin_name\":\"sing-box\",\"clash_api_port\":\"${API_PORT}\",\"clash_api_secret\":\"\"}"
+    ;;
+
+  # ── Service control ────────────────────────────────────────────────────── #
+  service)
+    case "${1:-}" in
+      start|stop|restart)
+        sh "$SCRIPTS/start.sh" "$1" >/dev/null 2>&1 &
+        _ok "\"triggered\""
+        ;;
+      status)
+        exec "$0" status
+        ;;
+      *) _err "unknown action: ${1:-}" ;;
+    esac
+    ;;
+
+  # ── Toggle a 0/1 variable ──────────────────────────────────────────────── #
+  toggle)
+    KEY="${1:-}"; VAL="${2:-0}"
+    case "$KEY" in
+      PROXY_MOBILE|PROXY_WIFI|PROXY_HOTSPOT|PROXY_USB|PROXY_TCP|PROXY_UDP|\
+      APP_PROXY_ENABLE|BYPASS_CN_IP|BLOCK_QUIC|FORCE_MARK_BYPASS|\
+      PERFORMANCE_MODE|DNS_HIJACK_ENABLE)
+        _conf_set_num "$KEY" "$VAL"
+        _ok "null"
+        ;;
+      PROXY_IPV6|PROXY_MODE)
+        _conf_set_num "$KEY" "$VAL"
+        _ok "null"
+        ;;
+      *) _err "toggle: unknown key: $KEY" ;;
+    esac
+    ;;
+
+  # ── Set a numeric variable ─────────────────────────────────────────────── #
+  set-number)
+    KEY="${1:-}"; VAL="${2:-0}"
+    _conf_set_num "$KEY" "$VAL"
+    _ok "null"
+    ;;
+
+  # ── Set a string variable ──────────────────────────────────────────────── #
+  set-config)
+    KEY="${1:-}"; VAL="${2:-}"
+    _conf_set_str "$KEY" "$VAL"
+    _ok "null"
+    ;;
+
+  # ── Update per-app proxy rules ─────────────────────────────────────────── #
+  set-apps)
+    MODE="${1:-disable}"; VALUE="${2:-}"
+    # Convert actual newlines (from WebUI) to spaces for tproxy.conf
+    SPACE_VAL=$(printf '%s' "$VALUE" | tr '\n' ' ' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    SAFE_VAL=$(printf '%s' "$SPACE_VAL" | sed 's/&/\\&/g')
+    case "$MODE" in
+      whitelist)
+        _conf_set_num APP_PROXY_ENABLE 1
+        _conf_set_str APP_PROXY_MODE whitelist
+        sed -i "s|^PROXY_APPS_LIST=.*$|PROXY_APPS_LIST=\"${SAFE_VAL}\"|" "$TPROXY_CONF"
+        ;;
+      blacklist)
+        _conf_set_num APP_PROXY_ENABLE 1
+        _conf_set_str APP_PROXY_MODE blacklist
+        sed -i "s|^BYPASS_APPS_LIST=.*$|BYPASS_APPS_LIST=\"${SAFE_VAL}\"|" "$TPROXY_CONF"
+        ;;
+      disable)
+        _conf_set_num APP_PROXY_ENABLE 0
+        ;;
+      *) _err "set-apps: unknown mode: $MODE" ;;
+    esac
+    _ok "null"
+    ;;
+
+  # ── Recent log lines ───────────────────────────────────────────────────── #
+  check-log)
+    LOGTYPE="${1:-runs}"; LINES="${2:-80}"
+    case "$LOGTYPE" in
+      runs|svc)  LOGFILE="$RUNS_LOG" ;;
+      singbox|sb) LOGFILE="$SINGBOX_LOG" ;;
+      net)       LOGFILE="$NET_LOG" ;;
+      *)         LOGFILE="$RUNS_LOG" ;;
+    esac
+    LOG=$( tail -n "$LINES" "$LOGFILE" 2>/dev/null | sed 's/\\/\\\\/g; s/"/\\"/g' | awk '{if(NR>1)printf "\\n"; printf "%s",$0}')
+    _ok "\"${LOG}\""
+    ;;
+
+  # ── Module capabilities ────────────────────────────────────────────────── #
+  capabilities)
+    _ok "{\"sing-box\":true,\"tproxy\":true,\"ipset\":true,\"per-app\":true,\"cn-bypass\":true}"
+    ;;
+
+  # ── Zashboard panel URL ────────────────────────────────────────────────── #
+  dashboard-url)
+    API_PORT=$(_api_port); API_PORT="${API_PORT:-9090}"
+    _ok "\"http://127.0.0.1:${API_PORT}/ui/\""
+    ;;
+
+  # ── Manual mode (SB-Tproxy: watchdog always active) ───────────────────── #
+  manual-mode)
+    _ok "{\"enabled\":false}"
+    ;;
+
+  *) _err "unknown command: ${CMD:-empty}" ;;
+esac

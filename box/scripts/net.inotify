@@ -1,0 +1,54 @@
+#!/system/bin/sh
+# Network change handler — invoked by inotifyd on /data/misc/net writes
+# $1=event $2=dir $3=file
+
+export PATH="/data/adb/magisk:/data/adb/ksu/bin:/data/adb/ap/bin:$PATH:/system/bin"
+
+SCRIPTS_DIR="${0%/*}"
+BOX_DIR="/data/adb/box"
+BOX_PID="${BOX_DIR}/run/box.pid"
+TPROXY_SH="${SCRIPTS_DIR}/tproxy.sh"
+LOG="${BOX_DIR}/run/net.log"
+LOCK="${BOX_DIR}/run/net_tproxy.lock"
+
+# Only act on write events
+[ "$1" = "w" ] || exit 0
+
+# Only re-apply if sing-box is running
+[ -f "$BOX_PID" ] || exit 0
+PID="$(cat "$BOX_PID" 2>/dev/null)"
+kill -0 "$PID" 2>/dev/null || exit 0
+
+# Debounce: skip if we applied rules within the last 3 seconds
+NOW="$(date +%s)"
+LAST="$(cat "$LOCK" 2>/dev/null)"
+case "$LAST" in ''|*[!0-9]*) LAST=0 ;; esac
+[ $((NOW - LAST)) -lt 3 ] && exit 0
+
+{
+  echo "$(date): network change on $3 — re-applying tproxy rules"
+  "$TPROXY_SH" -d "$BOX_DIR" stop
+
+  # Close the IPv6 leak window: tproxy.sh stop restores IPv6 when PROXY_IPV6=-1,
+  # but we are about to restart so keep it disabled immediately.
+  _piv6=$(sed -n 's/^PROXY_IPV6=//p' "${BOX_DIR}/tproxy.conf" 2>/dev/null | head -1)
+  if [ "$_piv6" = "-1" ]; then
+    echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null || true
+  fi
+  unset _piv6
+
+  # Re-verify sing-box is alive AND the PID is actually sing-box (guards against
+  # PID reuse from a stale box.pid). If the core died, skip rule re-application
+  # so we don't install TPROXY rules pointing at a dead port (connectivity blackhole).
+  PID="$(cat "$BOX_PID" 2>/dev/null)"
+  if ! kill -0 "$PID" 2>/dev/null || ! command grep -q sing-box "/proc/$PID/cmdline" 2>/dev/null; then
+    echo "$(date): sing-box not running — skipping tproxy rule re-application"
+  else
+    "$TPROXY_SH" -d "$BOX_DIR" start
+    echo "$(date): tproxy rules re-applied"
+  fi
+} >>"$LOG" 2>&1
+
+# Record completion time so debounce measures from when re-apply finished,
+# collapsing bursts queued by inotifyd during the (multi-second) run above.
+echo "$(date +%s)" >"$LOCK"

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="theme-color" content="#f8fafc" />
+  <title>SB Tproxy</title>
+  <script>
+    (function () {
+      var doc = document.documentElement;
+      var meta = document.querySelector('meta[name="theme-color"]');
+      var stored = '';
+      try { stored = localStorage.getItem('sb:theme') || ''; } catch (_) {}
+      var dark = stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (dark) {
+        doc.classList.add('dark');
+        doc.style.backgroundColor = '#0f172a';
+        if (meta) meta.setAttribute('content', '#0f172a');
+      }
+    })();
+  </script>
+  <script type="module" crossorigin src="./assets/index-CN3Crm6P.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-BjC3mIaR.css">
+</head>
+<body>
+  <div id="root"></div>
+</body>
+</html>
