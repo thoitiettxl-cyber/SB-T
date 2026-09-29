@@ -1,0 +1,310 @@
+#!/system/bin/sh
+# Network change handler — invoked by inotifyd on /data/misc/net writes
+# $1=event $2=dir $3=file
+
+export PATH="/data/adb/magisk:/data/adb/ksu/bin:/data/adb/ap/bin:$PATH:/system/bin"
+
+SCRIPTS_DIR="${0%/*}"
+. "${SCRIPTS_DIR}/box.tool"
+. "${SCRIPTS_DIR}/runtime.lib"
+
+BOX_DIR="${SB_BOX_DIR:-/data/adb/box}"
+BOX_PID="${BOX_DIR}/run/box.pid"
+BIN_PATH="${SB_BIN_PATH:-${BOX_DIR}/bin/sing-box}"
+TPROXY_SH="${SB_TPROXY_SH:-${SCRIPTS_DIR}/tproxy.sh}"
+SB_IPSET_BIN="${SB_IPSET_BIN:-${BOX_DIR}/bin/ipset}"
+LOG="${BOX_DIR}/run/net.log"
+LOCK="${BOX_DIR}/run/net_tproxy.lock"
+BOX_LOCK="${BOX_DIR}/run/box.lock"
+BOX_WANT="${BOX_DIR}/run/box.want"
+BOX_RECOVERY="${BOX_DIR}/run/box.recover"
+RUNTIME_CONF="${BOX_DIR}/runtime_tproxy.conf"
+
+TPROXY_PORT=$($busybox awk -F= '
+  /^[[:space:]]*tproxy_port[[:space:]]*=/ {
+    value=$2
+    gsub(/[[:space:]"\047]/, "", value)
+    print value
+    exit
+  }
+' "${BOX_DIR}/settings.ini" 2>/dev/null)
+case "$TPROXY_PORT" in ''|*[!0-9]*) TPROXY_PORT=1536 ;; esac
+
+
+finish_event() {
+  printf '%s\n' "$(date +%s)" > "$LOCK" 2>/dev/null || \
+    echo "$(date): cannot update net debounce lock"
+  runtime_trim_logs "${BOX_DIR}/run"
+}
+
+mark_recovery() {
+  : > "$BOX_RECOVERY" 2>/dev/null || {
+    echo "$(date): cannot write recovery marker"
+    return 1
+  }
+  return 0
+}
+
+clear_recovery() {
+  rm -f "$BOX_RECOVERY" 2>/dev/null || {
+    echo "$(date): cannot clear recovery marker"
+    return 1
+  }
+  return 0
+}
+
+trim_event_logs() {
+  runtime_trim_logs "${BOX_DIR}/run"
+}
+
+read_proxy_ipv6_mode() {
+  local path="$1"
+
+  $busybox awk -F= '
+    /^[[:space:]]*PROXY_IPV6[[:space:]]*=/ {
+      count++
+      value=$2
+      gsub(/[[:space:]"\047]/, "", value)
+    }
+    END { if (count == 1) print value; else exit 1 }
+  ' "$path" 2>/dev/null
+}
+
+read_runtime_ipv6_origin() {
+  local path="$1"
+
+  $busybox awk -F= '
+    $1 == "ORIG_IP6_FORWARDING" { count++; value=$2 }
+    END { if (count == 1) print value; else exit 1 }
+  ' "$path" 2>/dev/null
+}
+
+
+# Only act on write events
+[ "$1" = "w" ] || exit 0
+# `/data/misc/net/rt_tables` is the network-state signal service.sh waits for.
+# Ignore unrelated files in the watched directory.
+[ "$3" = "rt_tables" ] || exit 0
+
+handle_event() {
+  # Serialize the debounce read/write and the full stop/start transition with
+  # start.sh lifecycle operations. Wait long enough for a normal restart so the
+  # final event is not silently lost behind a concurrent lifecycle owner.
+  if ! runtime_flock_wait 9 15; then
+    echo "$(date): lifecycle lock timed out — scheduling recovery marker"
+    if ! mark_recovery; then
+      trim_event_logs
+      return 77
+    fi
+    trim_event_logs
+    return 76
+  fi
+
+  # A deliberate stop removes box.want before teardown; never resurrect it.
+  [ -f "$BOX_WANT" ] || return 0
+
+  PID="$(cat "$BOX_PID" 2>/dev/null)"
+  if ! runtime_pid_is_core "$PID" "$BIN_PATH"; then
+    echo "$(date): sing-box PID is absent or invalid — scheduling full recovery"
+    mark_recovery || { trim_event_logs; return 77; }
+    trim_event_logs
+    return 76
+  fi
+
+  if ! runtime_tproxy_port_ready "$PID" "$TPROXY_PORT" "$BIN_PATH" 1; then
+    echo "$(date): sing-box PID $PID does not own TCP/UDP $TPROXY_PORT — scheduling full recovery"
+    mark_recovery || { trim_event_logs; return 77; }
+    trim_event_logs
+    return 76
+  fi
+
+  runtime_tproxy_state_classify "$RUNTIME_CONF" "$TPROXY_PORT"
+  state_rc=$?
+  if [ "$state_rc" -eq 0 ]; then
+    if ! clear_recovery; then
+      trim_event_logs
+      return 77
+    fi
+    # Always inspect health before applying debounce. Missing state must recover
+    # even when the last successful event completed less than three seconds ago.
+    NOW="$(date +%s)"
+    LAST="$(cat "$LOCK" 2>/dev/null)"
+    case "$LAST" in ''|*[!0-9]*) LAST=0 ;; esac
+    if [ $((NOW - LAST)) -lt 3 ]; then
+      trim_event_logs
+      return 0
+    fi
+    echo "$(date): network change on $3 — tproxy state healthy, reapply skipped"
+    finish_event
+    return 0
+  fi
+
+  if ! mark_recovery; then
+    trim_event_logs
+    return 77
+  fi
+
+  if [ "$state_rc" -eq 2 ]; then
+    echo "$(date): IPv6 interface drift detected — repairing leak guard in place"
+    if ! "$TPROXY_SH" -d "$BOX_DIR" guard-ipv6; then
+      echo "$(date): IPv6 guard repair failed — recovery remains pending"
+      trim_event_logs
+      return 76
+    fi
+    runtime_tproxy_state_classify "$RUNTIME_CONF" "$TPROXY_PORT"
+    verify_rc=$?
+    if [ "$verify_rc" -ne 0 ]; then
+      echo "$(date): IPv6 guard repair verification failed (state $verify_rc)"
+      trim_event_logs
+      return 76
+    fi
+    if ! clear_recovery; then
+      trim_event_logs
+      return 77
+    fi
+    echo "$(date): IPv6 leak guard repaired without tproxy reapply"
+    finish_event
+    return 0
+  fi
+
+  echo "$(date): network change on $3 — tproxy state incomplete, re-applying rules"
+
+  # Read both sides before stop removes runtime_tproxy.conf. The saved mode owns
+  # teardown; the editable mode owns the guard required for the fresh start.
+  _old_piv6_mode=$(read_proxy_ipv6_mode "$RUNTIME_CONF")
+  _next_piv6_mode=$(read_proxy_ipv6_mode "${BOX_DIR}/tproxy.conf")
+  case "$_old_piv6_mode" in
+    -1|0|1) ;;
+    *)
+      echo "$(date): cannot determine prior PROXY_IPV6 mode — reapply aborted"
+      trim_event_logs
+      return 76
+      ;;
+  esac
+  case "$_next_piv6_mode" in
+    -1|0|1) ;;
+    *)
+      echo "$(date): cannot determine next PROXY_IPV6 mode — reapply aborted"
+      trim_event_logs
+      return 76
+      ;;
+  esac
+
+  if [ "$_old_piv6_mode" = "-1" ] && \
+     ! _runtime_ipv6_backup_valid "${BOX_DIR}/ipv6_backup.conf"; then
+    echo "$(date): active IPv6-disable origin backup is missing or invalid — reapply aborted"
+    if ! clear_recovery; then
+      echo "$(date): cannot clear non-recoverable IPv6-origin marker; stop preflight will remain fail-closed"
+    fi
+    trim_event_logs
+    return 76
+  fi
+  if [ "$_old_piv6_mode" != "-1" ] && [ "$_next_piv6_mode" = "-1" ] && \
+     [ -e "${BOX_DIR}/ipv6_backup.conf" ]; then
+    echo "$(date): stale IPv6 origin backup blocks transition guard — reapply aborted"
+    trim_event_logs
+    return 76
+  fi
+
+  # When the next mode disables IPv6, install the existing fail-closed output
+  # guard before any old IPv6 proxy chain is removed. The stop owner then keeps
+  # that same backup/guard through teardown.
+  if [ "$_next_piv6_mode" = "-1" ]; then
+    if [ "$_old_piv6_mode" = "1" ]; then
+      _old_ip6_origin=$(read_runtime_ipv6_origin "$RUNTIME_CONF")
+      case "$_old_ip6_origin" in
+        0|1) ;;
+        *)
+          echo "$(date): cannot determine original IPv6 forwarding — reapply aborted"
+          trim_event_logs
+          return 76
+          ;;
+      esac
+      TPROXY_IPV6_FORWARDING_ORIGIN="$_old_ip6_origin" \
+        "$TPROXY_SH" -d "$BOX_DIR" guard-ipv6
+      guard_rc=$?
+    else
+      "$TPROXY_SH" -d "$BOX_DIR" guard-ipv6
+      guard_rc=$?
+    fi
+    if [ "$guard_rc" -ne 0 ]; then
+      echo "$(date): IPv6 transition guard failed before teardown — reapply aborted"
+      trim_event_logs
+      return 76
+    fi
+  fi
+
+  if [ "$_old_piv6_mode" = "-1" ] || [ "$_next_piv6_mode" = "-1" ]; then
+    TPROXY_KEEP_IPV6_DISABLED=1 "$TPROXY_SH" -d "$BOX_DIR" stop
+  else
+    "$TPROXY_SH" -d "$BOX_DIR" stop
+  fi
+  stop_rc=$?
+  if [ "$stop_rc" -ne 0 ]; then
+    echo "$(date): tproxy stop failed (exit $stop_rc) — reapply aborted"
+    if [ "$_old_piv6_mode" = "-1" ] || [ "$_next_piv6_mode" = "-1" ]; then
+      "$TPROXY_SH" -d "$BOX_DIR" guard-ipv6 || \
+        echo "$(date): IPv6 guard also failed after stop error"
+    fi
+    trim_event_logs
+    return 76
+  fi
+
+  # Re-verify exact PID and TCP/UDP ownership after teardown. Do not let the
+  # pre-start hook point fresh rules at a live process with a dead listener.
+  PID="$(cat "$BOX_PID" 2>/dev/null)"
+  if ! runtime_pid_is_core "$PID" "$BIN_PATH" || \
+     ! runtime_tproxy_port_ready "$PID" "$TPROXY_PORT" "$BIN_PATH" 1; then
+    echo "$(date): sing-box readiness was lost during teardown — scheduling full recovery"
+    trim_event_logs
+    return 76
+  fi
+
+  if [ "$_next_piv6_mode" = "-1" ]; then
+    TPROXY_KEEP_IPV6_DISABLED=1 "$TPROXY_SH" -d "$BOX_DIR" start
+  else
+    "$TPROXY_SH" -d "$BOX_DIR" start
+  fi
+  start_rc=$?
+  if [ "$start_rc" -eq 0 ]; then
+    PID="$(cat "$BOX_PID" 2>/dev/null)"
+    if runtime_pid_is_core "$PID" "$BIN_PATH" && \
+       runtime_tproxy_port_ready "$PID" "$TPROXY_PORT" "$BIN_PATH" 1; then
+      runtime_tproxy_state_classify "$RUNTIME_CONF" "$TPROXY_PORT"
+      verify_rc=$?
+      if [ "$verify_rc" -eq 0 ]; then
+        if ! clear_recovery; then
+          trim_event_logs
+          return 77
+        fi
+        echo "$(date): tproxy rules re-applied"
+        finish_event
+        return 0
+      fi
+      echo "$(date): tproxy reapply network-state verification failed (state $verify_rc)"
+    else
+      echo "$(date): sing-box PID/socket readiness was lost during rule installation"
+    fi
+  else
+    echo "$(date): tproxy start failed (exit $start_rc)"
+  fi
+
+  echo "$(date): tproxy reapply did not verify — cleaning partial state"
+  if [ "$_next_piv6_mode" = "-1" ]; then
+    TPROXY_KEEP_IPV6_DISABLED=1 "$TPROXY_SH" -d "$BOX_DIR" stop
+  else
+    "$TPROXY_SH" -d "$BOX_DIR" stop
+  fi
+  cleanup_rc=$?
+  [ "$cleanup_rc" -eq 0 ] || \
+    echo "$(date): partial-state cleanup also failed (exit $cleanup_rc)"
+  if [ "$_next_piv6_mode" = "-1" ]; then
+    "$TPROXY_SH" -d "$BOX_DIR" guard-ipv6 || \
+      echo "$(date): IPv6 guard also failed after start error"
+  fi
+  trim_event_logs
+  return 76
+}
+
+handle_event 9>"$BOX_LOCK" >>"$LOG" 2>&1
+exit $?

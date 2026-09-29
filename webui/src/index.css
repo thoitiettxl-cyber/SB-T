@@ -1,0 +1,89 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── SB·T design tokens ───────────────────────────────────────────────
+   HyperOS / Miuix look, values taken from the Miuix source
+   (top.yukonga.miuix.kmp 0.9.4: Colors.kt lightColorScheme/darkColorScheme,
+   CardDefaults.CornerRadius = 16dp, Switch 49x28dp) and Camera2Magic's
+   StatusColors (fixed healthy/danger spectrum).
+   Light:  page #F7F7F7 · card #FFFFFF · primary #3482FF
+   Dark:   page #000000 · card #242424 · primary #277AF7
+   Cards are flat: no border, no shadow.                               */
+
+@theme inline {
+  --color-miu-bg:         var(--miu-bg);
+  --color-miu-card:       var(--miu-card);
+  --color-miu-text:       var(--miu-text);
+  --color-miu-sub:        var(--miu-sub);
+  --color-miu-faint:      var(--miu-faint);
+  --color-miu-divider:    var(--miu-divider);
+  --color-miu-primary:    var(--miu-primary);
+  --color-miu-on-primary: #ffffff;
+  --color-miu-healthy:    var(--miu-healthy);
+  --color-miu-danger:     var(--miu-danger);
+  --color-miu-healthy-bg: var(--miu-healthy-bg);
+  --color-miu-danger-bg:  var(--miu-danger-bg);
+  --color-miu-track:      var(--miu-track);
+  --color-miu-warn:       #ff9500;
+
+  --animate-ping-slow: ping-slow 2.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+  @keyframes ping-slow {
+    0%   { transform: scale(0.92); opacity: 0.55; }
+    75%  { transform: scale(1.28); opacity: 0; }
+    100% { transform: scale(1.28); opacity: 0; }
+  }
+}
+
+:root {
+  --miu-bg:         #f7f7f7;
+  --miu-card:       #ffffff;
+  --miu-text:       #000000;
+  --miu-sub:        rgba(0, 0, 0, 0.6);
+  --miu-faint:      rgba(0, 0, 0, 0.38);
+  --miu-divider:    #e0e0e0;
+  --miu-primary:    #3482ff;
+  --miu-healthy:    #4caf50;
+  --miu-danger:     #e53935;
+  --miu-healthy-bg: #dffae4;
+  --miu-danger-bg:  #fde8e8;
+  --miu-track:      #e4e4e4;
+}
+
+.dark {
+  --miu-bg:         #000000;
+  --miu-card:       #242424;
+  --miu-text:       #f2f2f2;
+  --miu-sub:        rgba(255, 255, 255, 0.55);
+  --miu-faint:      rgba(255, 255, 255, 0.35);
+  --miu-divider:    #393939;
+  --miu-primary:    #277af7;
+  --miu-healthy:    #81c784;
+  --miu-danger:     #ef5350;
+  --miu-healthy-bg: #1a3825;
+  --miu-danger-bg:  #3a2020;
+  --miu-track:      #3f3f3f;
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+::selection {
+  background: rgba(52, 130, 255, 0.28);
+}
+
+/* slim scrollbars that match the theme */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 8px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+}
